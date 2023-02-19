@@ -86,6 +86,16 @@ spec:
             value: "0"
           # - name: CYMBAL_BRANDING
           #   value: "true"
+          - name: "CLUSTERID"
+            value: "store-test-cluster"
+          - name: "KAFKA_BROKER1"
+            value: "broker1.senser.tech:30718"
+          - name: "KAFKA_BROKER2"
+            value: "broker2.senser.tech:30719"
+          - name: MY_POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
           resources:
             requests:
               cpu: 100m
