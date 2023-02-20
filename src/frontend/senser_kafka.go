@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/segmentio/kafka-go"
@@ -45,11 +46,12 @@ type SenserConsumer struct {
 	topic3 string
 
 	reader1 *kafka.Reader
-	reader2 *kafka.Reader
-	reader3 *kafka.Reader
+
+	msgCh chan *string
 }
 
 var globalSenserKafka *SenserConsumer
+var StopFrontEnd sync.Mutex
 
 func InitSenserKafkaConsumer() {
 	globalSenserKafka = &SenserConsumer{
@@ -57,31 +59,23 @@ func InitSenserKafkaConsumer() {
 	}
 	globalSenserKafka.setConnParams()
 	globalSenserKafka.initReaders()
-}
 
-func GetCurrencyDataFromKafka() (string, error) {
-	response := ""
+	globalSenserKafka.msgCh = make(chan *string)
 	c := globalSenserKafka
+	go func() {
+		r := c.reader1
+		for {
+			ret, err := r.ReadMessage(c.ctx)
+			fmt.Printf("Got Kafka Message, %v. err: %v\n", ret, err)
+			if err == nil {
+				c.msgCh <- &string(ret.Value)
+			} else {
+				c.msgCh <- nil
+			}
+		}
+	}()
 
-	ret, err := c.readMessage(c.reader1)
-	if err != nil {
-		return "", err
-	}
-	response += ret
-
-	ret, err = c.readMessage(c.reader2)
-	if err != nil {
-		return "", err
-	}
-	response += "|" + ret
-
-	ret, err = c.readMessage(c.reader3)
-	if err != nil {
-		return "", err
-	}
-	response += "|" + ret
-
-	return response, nil
+	go globalSenserKafka.readMessages()
 }
 
 func (c *SenserConsumer) setConnParams() {
@@ -101,16 +95,12 @@ func (c *SenserConsumer) setConnParams() {
 	}
 
 	c.topic1 = c.clusterID + "-topic1"
-	c.topic2 = c.clusterID + "-topic2"
-	c.topic3 = c.clusterID + "-topic3"
 
 	fmt.Printf("Senser Init: broker1Address=%s\n", c.broker1Address)
 	fmt.Printf("Senser Init: broker2Address=%s\n", c.broker2Address)
 	fmt.Printf("Senser Init: clusterID=%s\n", c.clusterID)
 
 	fmt.Printf("Senser Init: topic1=%s\n", c.topic1)
-	fmt.Printf("Senser Init: topic2=%s\n", c.topic2)
-	fmt.Printf("Senser Init: topic3=%s\n", c.topic3)
 
 	fmt.Printf("Senser Init: ConsumerGroupId=%s\n", os.Getenv(MY_POD_NAMESPACE))
 }
@@ -126,33 +116,37 @@ func (c *SenserConsumer) initReaders() {
 		Topic:       c.topic1,
 		StartOffset: kafka.LastOffset,
 		GroupID:     namespace,
-	})
-
-	c.reader2 = kafka.NewReader(kafka.ReaderConfig{
-		Brokers:     []string{c.broker1Address, c.broker2Address},
-		Topic:       c.topic2,
-		StartOffset: kafka.LastOffset,
-		GroupID:     namespace,
-	})
-
-	c.reader3 = kafka.NewReader(kafka.ReaderConfig{
-		Brokers:     []string{c.broker1Address, c.broker2Address},
-		Topic:       c.topic3,
-		StartOffset: kafka.LastOffset,
-		GroupID:     namespace,
+		// MaxWait:     1 * time.Second,
 	})
 }
 
-func (c *SenserConsumer) readMessage(r *kafka.Reader) (string, error) {
+func (c *SenserConsumer) readMessages() (string, error) {
 	// Read will read a batch of messages, so to ensure "fetch" commands we always grab the latest messages
-	r.SetOffsetAt(c.ctx, time.Now().Add(-10*time.Second))
-
 	// the `readMessage` method blocks until we receive the next event
-	msg, err := r.ReadMessage(c.ctx)
-	if err != nil {
-		fmt.Printf("Error: could not read message " + err.Error())
-		time.Sleep(time.Second * 5)
-		return "", err
+	locked := false
+
+	var result *string
+	for {
+		select {
+		case result = <-c.msgCh:
+
+		case <-time.After(1 * time.Second):
+			*result = ""
+		}
+
+		if result == nil {
+			if !locked {
+				fmt.Println("HTTP control: locked")
+				StopFrontEnd.Lock()
+				locked = true
+			}
+		} else {
+			if locked {
+				fmt.Println("HTTP control: unlocked")
+				StopFrontEnd.Unlock()
+				locked = false
+			}
+		}
 	}
-	return string(msg.Value), nil
+
 }
