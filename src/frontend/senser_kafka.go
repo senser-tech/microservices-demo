@@ -18,7 +18,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"sync"
 	"time"
 
 	"github.com/segmentio/kafka-go"
@@ -47,11 +46,11 @@ type SenserConsumer struct {
 
 	reader1 *kafka.Reader
 
-	msgCh chan *string
+	msgCh chan string
 }
 
 var globalSenserKafka *SenserConsumer
-var StopFrontEnd sync.Mutex
+var StopFrontEnd bool
 
 func InitSenserKafkaConsumer() {
 	globalSenserKafka = &SenserConsumer{
@@ -60,7 +59,7 @@ func InitSenserKafkaConsumer() {
 	globalSenserKafka.setConnParams()
 	globalSenserKafka.initReaders()
 
-	globalSenserKafka.msgCh = make(chan *string)
+	globalSenserKafka.msgCh = make(chan string)
 	c := globalSenserKafka
 	go func() {
 		r := c.reader1
@@ -68,9 +67,9 @@ func InitSenserKafkaConsumer() {
 			ret, err := r.ReadMessage(c.ctx)
 			fmt.Printf("Got Kafka Message, %v. err: %v\n", ret, err)
 			if err == nil {
-				c.msgCh <- &string(ret.Value)
+				c.msgCh <- string(ret.Value)
 			} else {
-				c.msgCh <- nil
+				c.msgCh <- ""
 			}
 		}
 	}()
@@ -125,25 +124,25 @@ func (c *SenserConsumer) readMessages() (string, error) {
 	// the `readMessage` method blocks until we receive the next event
 	locked := false
 
-	var result *string
+	var result string
 	for {
 		select {
 		case result = <-c.msgCh:
 
 		case <-time.After(1 * time.Second):
-			*result = ""
+			result = ""
 		}
 
-		if result == nil {
+		if result == "" {
 			if !locked {
 				fmt.Println("HTTP control: locked")
-				StopFrontEnd.Lock()
+				StopFrontEnd = true
 				locked = true
 			}
 		} else {
 			if locked {
 				fmt.Println("HTTP control: unlocked")
-				StopFrontEnd.Unlock()
+				StopFrontEnd = false
 				locked = false
 			}
 		}

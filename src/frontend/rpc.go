@@ -16,6 +16,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	pb "github.com/GoogleCloudPlatform/microservices-demo/src/frontend/genproto"
@@ -29,8 +30,9 @@ const (
 
 func (fe *frontendServer) getCurrencies(ctx context.Context) ([]string, error) {
 	// Senser - This func consumes data from Kafka topics for demo purposes
-	StopFrontEnd.Lock()
-	StopFrontEnd.Unlock()
+	if StopFrontEnd {
+		return nil, fmt.Errorf("no kafka msg")
+	}
 
 	currs, err := pb.NewCurrencyServiceClient(fe.currencySvcConn).
 		GetSupportedCurrencies(ctx, &pb.Empty{})
