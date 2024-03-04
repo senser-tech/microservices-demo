@@ -262,6 +262,7 @@ func (fe *frontendServer) viewCartHandler(w http.ResponseWriter, r *http.Request
 		log.WithField("error", err).Warn("failed to get product recommendations")
 	}
 
+	// TODO ADIK - this is the Api i want to use...
 	shippingCost, err := fe.getShippingQuote(r.Context(), cart, currentCurrency(r))
 	if err != nil {
 		renderHTTPError(log, r, w, errors.Wrap(err, "failed to get shipping quote"), http.StatusInternalServerError)

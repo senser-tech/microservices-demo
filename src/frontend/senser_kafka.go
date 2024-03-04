@@ -20,6 +20,7 @@ import (
 	"os"
 	"time"
 
+	pb "github.com/GoogleCloudPlatform/microservices-demo/src/frontend/genproto"
 	"github.com/segmentio/kafka-go"
 )
 
@@ -47,14 +48,17 @@ type SenserConsumer struct {
 	reader1 *kafka.Reader
 
 	msgCh chan string
+
+	feSvc *frontendServer
 }
 
 var globalSenserKafka *SenserConsumer
 var StopFrontEnd bool
 
-func InitSenserKafkaConsumer() {
+func InitSenserKafkaConsumer(feSvc *frontendServer) {
 	globalSenserKafka = &SenserConsumer{
-		ctx: context.Background(),
+		ctx:   context.Background(),
+		feSvc: feSvc,
 	}
 	globalSenserKafka.setConnParams()
 	globalSenserKafka.initReaders()
@@ -144,6 +148,12 @@ func (c *SenserConsumer) readMessages() (string, error) {
 				fmt.Println("HTTP control: unlocked")
 				StopFrontEnd = false
 				locked = false
+
+			}
+			// Call Api for senser tests of Api chain calls to be related to the Kafka messages
+			_, err := c.feSvc.getShippingQuote(c.ctx, []*pb.CartItem{}, defaultCurrency)
+			if err != nil {
+				fmt.Printf("failed to get shipping quote from kafka handler. Err: %v", err)
 			}
 		}
 	}
